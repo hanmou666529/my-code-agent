@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-code-agent"
+version = "0.2.0"
+description = "Lightweight local AI coding agent — zero external dependencies, single process startup, with intelligent model routing (Claude > Qwen > Ollama)."
+keywords = ["ai", "coding-agent", "llm", "claude", "chatgpt", "tree-sitter", "textual", "react", "automation", "devtools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "litellm>=1.55.0",
+    "pydantic-settings>=2.6.0",
+    "pydantic>=2.9.0",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-python>=0.23.0",
+    "rich>=13.9.0",
+    "textual>=1.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.scripts]
+my-code-agent = "my_code_agent.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.6.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_code_agent"]

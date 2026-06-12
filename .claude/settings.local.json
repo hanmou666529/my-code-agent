@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"E:/Coding_Agent/.venv/Scripts/python.exe\" -m my_code_agent --cli)",
+      "Bash(\"e:/Coding_Agent/.venv/Scripts/python.exe\" -c \"import src.my_code_agent; print\\('ok'\\)\")",
+      "Bash(PYTHONPATH=\"e:/Coding_Agent/src\" \"e:/Coding_Agent/.venv/Scripts/python.exe\" -m my_code_agent --cli)",
+      "Bash(\"e:/Coding_Agent/.venv/Scripts/python.exe\" -m pip install -e .)"
+    ]
+  }
+}
