@@ -97,13 +97,21 @@ Final Answer: <your response>
         self,
         config: AgentConfig,
         chunk_callback: Optional[Callable[[str], None]] = None,
+        mcp_bridge=None,
     ) -> None:
         self._config = config
         self._safety = SafetyGuard(config.workspace_path)
         self._context = ContextEngine(config.workspace_path)
         self._budget = TokenBudget()
         self._chunk_callback = chunk_callback
+        self._mcp_bridge = mcp_bridge
+        self._skills: list = []
         self._conversation_history: List[Dict[str, str]] = []
+
+        # Load skills if MCP is enabled
+        if mcp_bridge is not None:
+            from .mcp import load_skills
+            self._skills = load_skills(Path(config.mcp_skills_path))
 
     # ---- Model routing ----
 
@@ -134,6 +142,25 @@ Final Answer: <your response>
                 f"Confirm to continue with a fresh session."
             )
 
+        # Sanitize user input (redact secrets)
+        user_input = self._safety.redact_secrets(user_input)
+
+        # Check for skill match before ReAct loop
+        if self._skills:
+            from .mcp import match_skill, execute_skill
+            matched = match_skill(user_input, self._skills)
+            if matched is not None:
+                # Execute the skill via tool dispatch
+                try:
+                    result = execute_skill(
+                        matched, self._execute_action, user_input,
+                        str(self._config.workspace_path),
+                    )
+                    return result
+                except Exception:
+                    # Fall through to ReAct loop
+                    pass
+
         # Classify and select model
         complexity = self._classify_complexity(user_input)
         model = self._select_model(complexity)
@@ -145,9 +172,6 @@ Final Answer: <your response>
         system_prompt = self.SYSTEM_PROMPT.format(
             tool_descriptions=tool_descs, max_steps=self.MAX_STEPS
         )
-
-        # Sanitize user input (redact secrets)
-        user_input = self._safety.redact_secrets(user_input)
 
         # Initialize conversation
         self._conversation_history = [

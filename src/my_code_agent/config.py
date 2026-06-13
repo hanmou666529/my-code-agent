@@ -87,6 +87,16 @@ class AgentConfig(BaseSettings):
     # --- Logging ---
     log_level: str = Field(default="INFO")
 
+    # --- MCP ---
+    mcp_enabled: bool = Field(
+        default=False,
+        description="Enable MCP (Model Context Protocol) mode",
+    )
+    mcp_skills_path: str = Field(
+        default=".mcp/skills.json",
+        description="Path to the skills definition JSON file",
+    )
+
     @property
     def workspace_path(self) -> Path:
         """Resolved absolute workspace path."""

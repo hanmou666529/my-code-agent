@@ -1,0 +1,52 @@
+[
+  {
+    "name": "format-code",
+    "level": "L1",
+    "description": "Format Python code using ruff or black",
+    "match_patterns": ["format", "black", "ruff", "pretty", "beautify"],
+    "recommended_tools": ["read_file", "search_replace"],
+    "steps": [],
+    "context_resources": [],
+    "safety_constraints": ["no-format-changes"]
+  },
+  {
+    "name": "lint-fix",
+    "level": "L1",
+    "description": "Fix lint errors in the given file using ruff",
+    "match_patterns": ["lint", "ruff fix", "fix errors", "code style"],
+    "recommended_tools": ["read_file", "search_replace"],
+    "steps": [],
+    "context_resources": [],
+    "safety_constraints": ["no-style-only-changes"]
+  },
+  {
+    "name": "refactor-function",
+    "level": "L1",
+    "description": "Safely refactor a specified function while preserving tests",
+    "match_patterns": ["refactor", "rename", "restructure"],
+    "recommended_tools": ["read_file", "search_replace", "search_symbols"],
+    "steps": [],
+    "context_resources": ["symbol://"],
+    "safety_constraints": ["no-delete-public-api", "preserve-signature"]
+  },
+  {
+    "name": "gen-tests",
+    "level": "L1",
+    "description": "Generate unit tests for a given function or class",
+    "match_patterns": ["test", "unit test", "generate tests", "coverage"],
+    "recommended_tools": ["read_file", "write_file"],
+    "steps": [],
+    "context_resources": ["symbol://"],
+    "safety_constraints": ["preserve-existing-tests"]
+  },
+  {
+    "name": "search-refactor",
+    "level": "L1",
+    "description": "Find all usages of a symbol and refactor them consistently",
+    "match_patterns": ["rename all", "global replace", "change all references"],
+    "recommended_tools": ["search_symbols", "read_file", "search_replace"],
+    "steps": [],
+    "context_resources": ["symbol://"],
+    "safety_constraints": ["no-delete-public-api"]
+  }
+]

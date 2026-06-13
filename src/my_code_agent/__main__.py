@@ -23,9 +23,19 @@ def main() -> None:
         _run_tui(config)
 
 
+def _create_agent(config: AgentConfig) -> CodingAgent:
+    """Create a CodingAgent, optionally with MCP bridge."""
+    if config.mcp_enabled:
+        from .mcp import MCPBridge
+        bridge = MCPBridge(config.workspace_path)
+    else:
+        bridge = None
+    return CodingAgent(config, mcp_bridge=bridge)
+
+
 def _run_cli(config: AgentConfig) -> None:
     """Simple CLI mode: read prompts from stdin, print responses to stdout."""
-    agent = CodingAgent(config)
+    agent = _create_agent(config)
     print("Coding Agent CLI (Ctrl+C to quit)")
     print("Type a task, or 'quit' to exit:")
     print()
@@ -50,7 +60,7 @@ def _run_tui(config: AgentConfig) -> None:
     """Launch the Textual TUI."""
     from .tui.app import CodingAgentApp
 
-    agent = CodingAgent(config)
+    agent = _create_agent(config)
     app = CodingAgentApp(agent)
     app.run()
 

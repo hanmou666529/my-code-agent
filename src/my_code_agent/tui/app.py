@@ -157,11 +157,17 @@ class CodingAgentApp(App[None]):
 
     def _run_agent_thread(self, user_input: str) -> None:
         """Execute the ReAct loop in a background thread."""
-        # Re-create agent with chunk callback for this run
         from ..agent import CodingAgent as AgentClass
         from ..config import AgentConfig
+
         config = AgentConfig()
-        agent = AgentClass(config, chunk_callback=self._stream_chunk)
+        bridge = None
+        if config.mcp_enabled:
+            from ..mcp import MCPBridge
+            bridge = MCPBridge(config.workspace_path)
+        agent = AgentClass(
+            config, chunk_callback=self._stream_chunk, mcp_bridge=bridge,
+        )
 
         response = agent.run(user_input)
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "my-code-agent"
-version = "0.2.0"
+version = "1.0.0"
 description = "Lightweight local AI coding agent — zero external dependencies, single process startup, with intelligent model routing (Claude > Qwen > Ollama)."
 keywords = ["ai", "coding-agent", "llm", "claude", "chatgpt", "tree-sitter", "textual", "react", "automation", "devtools"]
 classifiers = [
@@ -27,6 +27,7 @@ dependencies = [
     "rich>=13.9.0",
     "textual>=1.0.0",
     "pyyaml>=6.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
