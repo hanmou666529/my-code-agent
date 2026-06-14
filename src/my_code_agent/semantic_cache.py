@@ -129,7 +129,7 @@ class BM25Index:
             self._avg_doc_len = (
                 total_tokens / max(len(self._docs), 1)
             )
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
             pass
         self._loaded = True
 
@@ -266,11 +266,12 @@ class SemanticCache:
         cache_file = self._cache_dir / "cache.json"
         if cache_file.exists():
             try:
-                data = json.loads(cache_file.read_text(encoding="utf-8"))
+                raw = cache_file.read_text(encoding="utf-8")
+                data = json.loads(raw)
                 for entry_dict in data.get("entries", []):
                     entry = CacheEntry.from_dict(entry_dict)
                     self._hash_cache[entry.request_hash] = entry
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
                 pass
 
         self._bm25.load()

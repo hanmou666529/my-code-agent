@@ -166,7 +166,6 @@ Final Answer: <your response>
         config: AgentConfig,
         chunk_callback: Optional[Callable[[str], None]] = None,
         step_callback: Optional[Callable[[int, int, str], None]] = None,
-        token_callback: Optional[Callable[[int, int], None]] = None,
         mcp_bridge=None,
     ) -> None:
         self._config = config
@@ -175,7 +174,6 @@ Final Answer: <your response>
         self._budget = TokenBudget()
         self._chunk_callback = chunk_callback
         self._step_callback = step_callback
-        self._token_callback = token_callback
         self._mcp_bridge = mcp_bridge
         self._skills: list = []
         self._conversation_history: List[Dict[str, str]] = []
@@ -441,23 +439,13 @@ Final Answer: <your response>
                 if chunk.choices and chunk.choices[0].delta.content:
                     chunk_text = chunk.choices[0].delta.content
                     chunks.append(chunk)
-                    # Stream to TUI / CLI
+                    # Stream to TUI
                     if self._chunk_callback:
-                        try:
-                            self._chunk_callback(chunk_text)
-                        except Exception:
-                            pass
+                        self._chunk_callback(chunk_text)
 
             # Build final response from chunks
             final_response_obj = stream_chunk_builder(chunks)
-
-            # Defensive: handle empty / filtered / malformed responses
-            if not final_response_obj or not final_response_obj.choices:
-                return "[LLM returned empty response — possibly filtered or timed out.]"
-
             final_content = final_response_obj.choices[0].message.content
-            if not final_content:
-                return "[LLM returned empty content.]"
 
             # Track tokens
             tokens_used: Optional[tuple[int, int]] = None
@@ -466,12 +454,10 @@ Final Answer: <your response>
                     final_response_obj.usage.prompt_tokens,
                     final_response_obj.usage.completion_tokens,
                 )
-                # Notify CLI of token stats
-                if self._token_callback:
-                    try:
-                        self._token_callback(tokens_used[0], tokens_used[1])
-                    except Exception:
-                        pass
+                # Expose token counts to the CLI via a transient attribute
+                # so the progress callback can read them.
+                self._last_prompt_tokens = tokens_used[0]
+                self._last_completion_tokens = tokens_used[1]
 
             return final_content, tokens_used
 
@@ -517,9 +503,17 @@ Final Answer: <your response>
             raise
 
     def _parse_action(self, response: str) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Parse <action> and <input> tags from LLM response."""
-        action_match = re.search(r"Action:\s*(.+?)(?:\n|$)", response)
-        input_match = re.search(r"Action_Input:\s*(.+?)(?:\n|$)", response, re.DOTALL)
+        """Parse action and input from LLM response.
+
+        Accepts any casing: Thought/Action, action, ACTION, etc.
+        """
+        action_match = re.search(
+            r"(?i)^\s*action\s*:\s*(.+?)(?:\n|$)", response, re.MULTILINE
+        )
+        input_match = re.search(
+            r"(?i)^\s*action_\s*input\s*:\s*(.+?)(?:\n|$)",
+            response, re.MULTILINE | re.DOTALL,
+        )
 
         if not action_match:
             return None, None
