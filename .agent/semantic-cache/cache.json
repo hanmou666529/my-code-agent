@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "request_hash": "ec4260369a3ab73e",
+      "system_prompt_hash": "e2d8c97449fd802d",
+      "response": "你好！我是 Fuzor 编码助手。我可以看到这是一个关于 Fuzor 项目的工程。我有什么可以帮助你的吗？",
+      "model": "secondary",
+      "cached_at": 1781428427.0000932,
+      "hit_count": 0
+    }
+  ],
+  "saved_at": 1781428427.002108
+}

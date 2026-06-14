@@ -94,7 +94,7 @@ class JsonFileExporter(SpanExporter):
         existing = []
         if self._output_path.exists():
             try:
-                existing = json.loads(self._output_path.read_text())
+                existing = json.loads(self._output_path.read_text(encoding="utf-8"))
                 if isinstance(existing, list):
                     existing.extend(span_list)
                 elif isinstance(existing, dict) and "spans" in existing:

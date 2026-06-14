@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -18,7 +19,11 @@ from litellm import (
     completion_cost,
     stream_chunk_builder,
 )
+from litellm import litellm as litellm_core
 from litellm.exceptions import APIError, RateLimitError, Timeout as LiteLLMTimeout
+
+# Suppress LiteLLM debug output (Provider List, cost map warnings, etc.)
+litellm_core.suppress_debug_info = True
 
 from .config import AgentConfig
 from .context import ContextEngine
@@ -32,6 +37,61 @@ from .sandbox import SandboxExecutor  # noqa: F401
 from .tracing import AgentTracer  # noqa: F401
 from .state_machine import StateOrchestrator  # noqa: F401
 from .multi_agent import AgentTeam  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# CLI loading spinner
+# ---------------------------------------------------------------------------
+
+_spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+# Plain fallback for terminals that don't support unicode emoji
+_spinner_ascii = ["-", "\\", "|", "/"]
+
+
+def _is_interactive_terminal() -> bool:
+    """Check if stdout is an interactive TTY that supports ANSI/emoji."""
+    return sys.stdout.isatty() and sys.platform != "win32"
+
+
+def _print_loading(stop_event: "threading.Event") -> int:
+    """Print a loading indicator inline. Runs until *stop_event* is set.
+
+    Only renders on interactive terminals. Returns frame count.
+    """
+    interactive = _is_interactive_terminal()
+    if not interactive:
+        sys.stdout.write("  Thinking… ")
+        sys.stdout.flush()
+        # Keep feeding the event so the thread stays alive
+        while not stop_event.is_set():
+            stop_event.wait(0.5)
+        return 0
+
+    frames = _spinner_frames
+    frame_idx = 0
+    printed = 0
+    try:
+        while not stop_event.is_set():
+            symbol = frames[frame_idx % len(frames)]
+            frame_idx += 1
+            printed += 1
+            sys.stdout.write(f"\r\x1b[K  {symbol}  Thinking…")
+            sys.stdout.flush()
+            stop_event.wait(0.08)
+    except KeyboardInterrupt:
+        sys.stdout.write("\r\x1b[K")
+        sys.stdout.flush()
+        raise
+    return printed
+
+
+def _erase_loading() -> None:
+    """Erase the loading indicator line."""
+    if _is_interactive_terminal():
+        sys.stdout.write("\r\x1b[K")
+    else:
+        sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 class TaskComplexity(Enum):
@@ -105,6 +165,8 @@ Final Answer: <your response>
         self,
         config: AgentConfig,
         chunk_callback: Optional[Callable[[str], None]] = None,
+        step_callback: Optional[Callable[[int, int, str], None]] = None,
+        token_callback: Optional[Callable[[int, int], None]] = None,
         mcp_bridge=None,
     ) -> None:
         self._config = config
@@ -112,6 +174,8 @@ Final Answer: <your response>
         self._context = ContextEngine(config.workspace_path)
         self._budget = TokenBudget()
         self._chunk_callback = chunk_callback
+        self._step_callback = step_callback
+        self._token_callback = token_callback
         self._mcp_bridge = mcp_bridge
         self._skills: list = []
         self._conversation_history: List[Dict[str, str]] = []
@@ -250,7 +314,7 @@ Final Answer: <your response>
 
         # P2: Check semantic cache before proceeding
         if self._semantic_cache is not None:
-            cached = self._semantic_cache.get(user_input, system_prompt, model_name)
+            cached = self._semantic_cache.get(user_input, system_prompt, model)
             if cached is not None:
                 return cached
 
@@ -264,6 +328,12 @@ Final Answer: <your response>
 
         for step_num in range(1, self.MAX_STEPS + 1):
             step = ReActStep(step_number=step_num)
+            # Notify progress: calling LLM
+            if self._step_callback is not None:
+                try:
+                    self._step_callback(step_num, self.MAX_STEPS, "thinking")
+                except Exception:
+                    pass
 
             # Call LLM
             response_text, budget_update = self._call_llm(model)
@@ -290,6 +360,10 @@ Final Answer: <your response>
             # Execute action with safety checks
             observation = self._execute_action(action, action_input)
             step.observation = observation
+
+            # Notify progress: action completed
+            if self._step_callback:
+                self._step_callback(step_num, self.MAX_STEPS, "action")
 
             # Record step for distillation
             if hasattr(self, "_trace_collector"):
@@ -319,7 +393,7 @@ Final Answer: <your response>
 
         # P2: Store response in semantic cache
         if self._semantic_cache is not None:
-            self._semantic_cache.put(user_input, system_prompt, model_name, response_text or "")
+            self._semantic_cache.put(user_input, system_prompt, model, response_text or "")
             try:
                 self._semantic_cache.save()
             except Exception:
@@ -367,13 +441,23 @@ Final Answer: <your response>
                 if chunk.choices and chunk.choices[0].delta.content:
                     chunk_text = chunk.choices[0].delta.content
                     chunks.append(chunk)
-                    # Stream to TUI
+                    # Stream to TUI / CLI
                     if self._chunk_callback:
-                        self._chunk_callback(chunk_text)
+                        try:
+                            self._chunk_callback(chunk_text)
+                        except Exception:
+                            pass
 
             # Build final response from chunks
             final_response_obj = stream_chunk_builder(chunks)
+
+            # Defensive: handle empty / filtered / malformed responses
+            if not final_response_obj or not final_response_obj.choices:
+                return "[LLM returned empty response — possibly filtered or timed out.]"
+
             final_content = final_response_obj.choices[0].message.content
+            if not final_content:
+                return "[LLM returned empty content.]"
 
             # Track tokens
             tokens_used: Optional[tuple[int, int]] = None
@@ -382,6 +466,12 @@ Final Answer: <your response>
                     final_response_obj.usage.prompt_tokens,
                     final_response_obj.usage.completion_tokens,
                 )
+                # Notify CLI of token stats
+                if self._token_callback:
+                    try:
+                        self._token_callback(tokens_used[0], tokens_used[1])
+                    except Exception:
+                        pass
 
             return final_content, tokens_used
 

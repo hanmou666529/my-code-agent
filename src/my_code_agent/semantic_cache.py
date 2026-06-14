@@ -117,7 +117,7 @@ class BM25Index:
             self._loaded = True
             return
         try:
-            data = json.loads(self._index_path.read_text())
+            data = json.loads(self._index_path.read_text(encoding="utf-8"))
             self._docs = {k: v["tokens"] for k, v in data["docs"].items()}
             self._postings = {
                 k: set(v) for k, v in data["postings"].items()
@@ -266,7 +266,7 @@ class SemanticCache:
         cache_file = self._cache_dir / "cache.json"
         if cache_file.exists():
             try:
-                data = json.loads(cache_file.read_text())
+                data = json.loads(cache_file.read_text(encoding="utf-8"))
                 for entry_dict in data.get("entries", []):
                     entry = CacheEntry.from_dict(entry_dict)
                     self._hash_cache[entry.request_hash] = entry
@@ -316,15 +316,33 @@ class SemanticCache:
         # Layer 2: BM25 fuzzy match
         # Build a lightweight "document" text to search against
         searchable = f"{system_prompt[:500]} {user_input}"
+        # Skip fuzzy match for very short queries (< 3 meaningful tokens)
+        # Short queries produce unreliable BM25 scores with high false-positive rate
+        if len(_tokenize(user_input)) < 3:
+            return None
+
         candidates = self._bm25.score(searchable, top_k=3)
 
+        if not candidates:
+            return None
+
+        # Normalize BM25 score to [0, 1] similarity using max score
+        max_score = candidates[0][1]
+        is_single_doc = len(self._hash_cache) == 1
         for doc_id, score in candidates:
-            if score < self._bm25_min_score:
+            normalized = score / max(max_score, 1e-9)
+            if is_single_doc:
+                # Single document: require minimum absolute BM25 score to ensure
+                # meaningful token overlap (prevents noise matches)
+                if score < 1.0:
+                    continue
+            elif normalized < 0.95:
+                # Multiple documents: require high normalized similarity
                 continue
             candidate_entry = self._hash_cache.get(doc_id)
             if candidate_entry is not None and self._is_fresh(candidate_entry.cached_at):
                 candidate_entry.hit_count += 1
-                return f"[SEMANTIC CACHE HIT (score={score:.2f})] {candidate_entry.response}"
+                return f"[SEMANTIC CACHE HIT (score={normalized:.2f})] {candidate_entry.response}"
 
         return None
 

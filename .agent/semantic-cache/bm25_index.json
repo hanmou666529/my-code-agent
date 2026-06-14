@@ -1,0 +1,181 @@
+{
+  "docs": {
+    "ec4260369a3ab73e": {
+      "tokens": [
+        "you",
+        "coding",
+        "agent.",
+        "you",
+        "read",
+        "files",
+        "edit",
+        "files",
+        "search",
+        "code",
+        "execute",
+        "commands",
+        "create",
+        "git",
+        "checkpoints.",
+        "tools",
+        "available",
+        "read_file",
+        "read",
+        "complete",
+        "content",
+        "file.",
+        "args",
+        "file_path",
+        "str",
+        "write_file",
+        "write",
+        "content",
+        "file",
+        "creating",
+        "overwriting.",
+        "args",
+        "file_path",
+        "str",
+        "content",
+        "str",
+        "search_replace",
+        "search",
+        "replace",
+        "text",
+        "file.",
+        "args",
+        "file_path",
+        "str",
+        "old_string",
+        "str",
+        "new_string",
+        "str",
+        "old_string",
+        "must",
+        "match",
+        "exactly",
+        "uniquely.",
+        "search_symbols",
+        "search",
+        "code",
+        "symbols."
+      ]
+    }
+  },
+  "postings": {
+    "git": [
+      "ec4260369a3ab73e"
+    ],
+    "write": [
+      "ec4260369a3ab73e"
+    ],
+    "write_file": [
+      "ec4260369a3ab73e"
+    ],
+    "checkpoints.": [
+      "ec4260369a3ab73e"
+    ],
+    "code": [
+      "ec4260369a3ab73e"
+    ],
+    "available": [
+      "ec4260369a3ab73e"
+    ],
+    "file.": [
+      "ec4260369a3ab73e"
+    ],
+    "str": [
+      "ec4260369a3ab73e"
+    ],
+    "creating": [
+      "ec4260369a3ab73e"
+    ],
+    "files": [
+      "ec4260369a3ab73e"
+    ],
+    "exactly": [
+      "ec4260369a3ab73e"
+    ],
+    "commands": [
+      "ec4260369a3ab73e"
+    ],
+    "old_string": [
+      "ec4260369a3ab73e"
+    ],
+    "coding": [
+      "ec4260369a3ab73e"
+    ],
+    "you": [
+      "ec4260369a3ab73e"
+    ],
+    "overwriting.": [
+      "ec4260369a3ab73e"
+    ],
+    "text": [
+      "ec4260369a3ab73e"
+    ],
+    "symbols.": [
+      "ec4260369a3ab73e"
+    ],
+    "search_replace": [
+      "ec4260369a3ab73e"
+    ],
+    "args": [
+      "ec4260369a3ab73e"
+    ],
+    "read": [
+      "ec4260369a3ab73e"
+    ],
+    "complete": [
+      "ec4260369a3ab73e"
+    ],
+    "search_symbols": [
+      "ec4260369a3ab73e"
+    ],
+    "tools": [
+      "ec4260369a3ab73e"
+    ],
+    "content": [
+      "ec4260369a3ab73e"
+    ],
+    "replace": [
+      "ec4260369a3ab73e"
+    ],
+    "file_path": [
+      "ec4260369a3ab73e"
+    ],
+    "match": [
+      "ec4260369a3ab73e"
+    ],
+    "file": [
+      "ec4260369a3ab73e"
+    ],
+    "agent.": [
+      "ec4260369a3ab73e"
+    ],
+    "new_string": [
+      "ec4260369a3ab73e"
+    ],
+    "must": [
+      "ec4260369a3ab73e"
+    ],
+    "edit": [
+      "ec4260369a3ab73e"
+    ],
+    "create": [
+      "ec4260369a3ab73e"
+    ],
+    "search": [
+      "ec4260369a3ab73e"
+    ],
+    "uniquely.": [
+      "ec4260369a3ab73e"
+    ],
+    "execute": [
+      "ec4260369a3ab73e"
+    ],
+    "read_file": [
+      "ec4260369a3ab73e"
+    ]
+  }
+}
