@@ -25,6 +25,14 @@ from .context import ContextEngine
 from .safety import SafetyGuard
 from .tools import tools as TOOL_REGISTRY
 
+# P2/P3 imports
+from .semantic_cache import SemanticCache  # noqa: F401
+from .perception import PerceptionRouter  # noqa: F401
+from .sandbox import SandboxExecutor  # noqa: F401
+from .tracing import AgentTracer  # noqa: F401
+from .state_machine import StateOrchestrator  # noqa: F401
+from .multi_agent import AgentTeam  # noqa: F401
+
 
 class TaskComplexity(Enum):
     """Task complexity levels for model routing."""
@@ -108,10 +116,71 @@ Final Answer: <your response>
         self._skills: list = []
         self._conversation_history: List[Dict[str, str]] = []
 
-        # Load skills if MCP is enabled
+        # Load skills via SkillRegistry (supports .skill.md + legacy JSON)
         if mcp_bridge is not None:
-            from .mcp import load_skills
-            self._skills = load_skills(Path(config.mcp_skills_path))
+            from .skills import SkillRegistry
+
+            registry = SkillRegistry(config.workspace_path)
+            registry.load()
+            self._skills = registry.all_skills()
+
+        # P2: Initialize semantic cache
+        if getattr(config, "semantic_cache_enabled", True):
+            cache_dir = config.workspace_path / ".agent" / "semantic-cache"
+            self._semantic_cache = SemanticCache(
+                cache_dir,
+                ttl_seconds=getattr(config, "semantic_cache_ttl_seconds", 3600),
+                max_entries=getattr(config, "semantic_cache_max_entries", 5000),
+            )
+            self._semantic_cache.load()
+        else:
+            self._semantic_cache = None
+
+        # P2: Initialize sandbox
+        if getattr(config, "sandbox_enabled", True):
+            self._sandbox = SandboxExecutor(
+                config.workspace_path,
+                blocked_patterns=config.blocked_commands,
+                default_timeout=getattr(config, "sandbox_default_timeout", 30.0),
+                max_output_bytes=getattr(config, "sandbox_max_output_bytes", 102_400),
+            )
+        else:
+            self._sandbox = None
+
+        # P2: Initialize tracing
+        if getattr(config, "tracing_enabled", True):
+            span_dir = config.workspace_path / config.trace_dir_spans
+            self._tracer = AgentTracer(
+                trace_dir=span_dir,
+                service_name="coding-agent",
+            )
+        else:
+            self._tracer = None
+
+        # P2: Initialize perception
+        self._perception = PerceptionRouter(
+            api_base=config.api_base,
+            api_key=config.anthropic_api_key or "",
+            model=config.primary_model,
+        )
+
+    def _determine_session_success(self, response: str, user_input: str) -> bool:
+        """Heuristic: determine if a ReAct session was successful.
+
+        Success criteria:
+        - Contains "Final Answer:" with substantive content (>20 chars)
+        - Does not contain error keywords
+        """
+        error_keywords = ("error", "failed", "denied", "blocked", "timeout")
+        lower = response.lower()
+        if any(kw in lower for kw in error_keywords):
+            return False
+        if "final answer:" in lower:
+            idx = lower.index("final answer:")
+            answer_part = response[idx + len("final answer:"):].strip()
+            return len(answer_part) > 20
+        # No "Final Answer:" but we have at least one step — likely succeeded
+        return True
 
     # ---- Model routing ----
 
@@ -147,19 +216,25 @@ Final Answer: <your response>
 
         # Check for skill match before ReAct loop
         if self._skills:
-            from .mcp import match_skill, execute_skill
-            matched = match_skill(user_input, self._skills)
+            matched = self._match_skill_from_registry(user_input)
             if matched is not None:
                 # Execute the skill via tool dispatch
                 try:
-                    result = execute_skill(
-                        matched, self._execute_action, user_input,
-                        str(self._config.workspace_path),
-                    )
+                    result = self._execute_registered_skill(matched, user_input)
                     return result
                 except Exception:
                     # Fall through to ReAct loop
                     pass
+
+        # Initialize trace collector if distill is enabled
+        if getattr(self._config, "distill_enabled", False):
+            from .distill import TraceCollector
+
+            self._trace_collector = TraceCollector(
+                self._config.workspace_path,
+                trace_dir=self._config.workspace_path / self._config.trace_dir,
+            )
+            self._trace_collector.begin_session(user_input)
 
         # Classify and select model
         complexity = self._classify_complexity(user_input)
@@ -172,6 +247,12 @@ Final Answer: <your response>
         system_prompt = self.SYSTEM_PROMPT.format(
             tool_descriptions=tool_descs, max_steps=self.MAX_STEPS
         )
+
+        # P2: Check semantic cache before proceeding
+        if self._semantic_cache is not None:
+            cached = self._semantic_cache.get(user_input, system_prompt, model_name)
+            if cached is not None:
+                return cached
 
         # Initialize conversation
         self._conversation_history = [
@@ -210,6 +291,15 @@ Final Answer: <your response>
             observation = self._execute_action(action, action_input)
             step.observation = observation
 
+            # Record step for distillation
+            if hasattr(self, "_trace_collector"):
+                self._trace_collector.record_step(
+                    step,
+                    prompt_tokens=budget_update[0] if budget_update else 0,
+                    completion_tokens=budget_update[1] if budget_update else 0,
+                    cost=self._budget.total_cost,
+                )
+
             # Feed observation back
             self._conversation_history.append(
                 {"role": "assistant", "content": response_text}
@@ -219,6 +309,28 @@ Final Answer: <your response>
             )
 
             steps.append(step)
+
+        # Finish trace collection
+        if hasattr(self, "_trace_collector"):
+            success = self._determine_session_success(response_text or "", user_input)
+            self._trace_collector.finish_session(
+                response_text or "", success=success
+            )
+
+        # P2: Store response in semantic cache
+        if self._semantic_cache is not None:
+            self._semantic_cache.put(user_input, system_prompt, model_name, response_text or "")
+            try:
+                self._semantic_cache.save()
+            except Exception:
+                pass
+
+        # P2: Export tracing spans
+        if self._tracer:
+            try:
+                self._tracer.export_all()
+            except Exception:
+                pass
 
         # Return final answer or last thought
         return response_text if response_text else "[Agent produced no output]"
@@ -360,7 +472,67 @@ Final Answer: <your response>
             "rg_search": "Search file contents using ripgrep. Args: pattern (str), workspace (str)",
             "execute_command": "Execute a shell command. Args: command (str), workspace (str). Output truncated at 10KB.",
             "git_checkpoint": "Create a git commit checkpoint. Args: message (str), workspace (str)",
+            "expand_directory": "Expand a directory with semantic role annotations. Args: path (str, relative to workspace), depth (int, levels to expand)",
+            "search_by_structure": "Search directories/files by structural pattern. Args: pattern (str, glob pattern), role (str, optional DirectoryRole)",
+            "get_module_boundary": "Given a file, find its module boundary, dependencies, and dependents. Args: file_path (str)",
         }
+
+    def _match_skill_from_registry(
+        self, user_input: str
+    ) -> Optional["SkillDefinition"]:
+        """Match user input against registered skills from SkillRegistry."""
+        input_lower = user_input.lower()
+        best_match: Optional["SkillDefinition"] = None
+        best_score = 0
+
+        for skill in self._skills.values():
+            score = 0
+            # Check match patterns
+            for pattern in skill.match_patterns:
+                if pattern.lower() in input_lower:
+                    score += 1
+                    if skill.name.lower() in input_lower:
+                        score += 2
+            # Check description match
+            if skill.description.lower() in input_lower:
+                score += 1
+
+            if score > best_score:
+                best_score = score
+                best_match = skill
+
+        if best_match and best_score >= 1:
+            return best_match
+        return None
+
+    def _execute_registered_skill(
+        self, skill: "SkillDefinition", user_input: str
+    ) -> str:
+        """Execute a registered skill from the SkillRegistry."""
+        from ..skills import execute_skill as exe_execute_skill
+
+        if skill.has_executable_code:
+            # Execute the skill's code_block with sandbox
+            safety = SafetyGuard(self._config.workspace_path)
+            inputs = {
+                "user_input": user_input,
+                "workspace_path": str(self._config.workspace_path),
+            }
+            result = exe_execute_skill(
+                skill=skill,
+                tool_executor=self._execute_action,
+                inputs=inputs,
+                workspace=self._config.workspace_path,
+                safety=safety,
+            )
+            return f"[Skill: {skill.name}] {result.output}"
+        else:
+            # Legacy skill with no code — just run recommended tools via ReAct
+            tool_names = ", ".join(skill.recommended_tools)
+            return (
+                f"[Skill: {skill.name}] No executable code. Recommended tools: {tool_names}. "
+                f"Continuing with ReAct loop."
+            )
 
     @property
     def token_budget(self) -> TokenBudget:

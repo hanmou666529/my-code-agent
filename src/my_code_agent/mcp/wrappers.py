@@ -12,7 +12,16 @@ from typing import Any, Callable, Dict, Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from ..dep_engine import failure_report as failure_report_fn
+from ..dep_engine import graph_analytics as graph_analytics_fn
+from ..graph_projection import CodebaseGraph
 from ..safety import SafetyGuard, SafetyViolation
+from ..semantic_tree import DirectoryRole
+from ..semantic_tree_tools import (
+    expand_directory as expand_directory_fn,
+    get_module_boundary as get_module_boundary_fn,
+    search_by_structure as search_by_structure_fn,
+)
 from ..tools import file_ops, search, shell, git_ops
 from ..tools import list_tools as list_tools_func
 
@@ -129,6 +138,104 @@ def _wrap_git_checkpoint(fn: Callable[..., str], workspace: Path) -> Callable[..
     return wrapped
 
 
+def _wrap_expand_directory(
+    fn: Callable[..., str], workspace: Path
+) -> Callable[..., str]:
+    """Wrap expand_directory with workspace validation."""
+    def wrapped(
+        path: str,
+        depth: int = 2,
+        filter_ext: str = "",
+        **kwargs: Any,
+    ) -> str:
+        resolved = Path(path)
+        if not resolved.is_absolute():
+            resolved = workspace / resolved
+        # Safety check: path must be within workspace
+        try:
+            resolved.relative_to(workspace)
+        except ValueError:
+            return "[SAFETY DENIED] Path escapes workspace"
+        kwargs["workspace_root"] = workspace
+        if filter_ext == "":
+            kwargs["filter_ext"] = None
+        return fn(path=str(resolved), depth=depth, **kwargs)
+    return wrapped
+
+
+def _wrap_search_by_structure(
+    fn: Callable[..., str], workspace: Path
+) -> Callable[..., str]:
+    """Wrap search_by_structure with workspace context."""
+    def wrapped(pattern: str, role: str = "", **kwargs: Any) -> str:
+        kwargs["workspace_root"] = workspace
+        if role:
+            try:
+                kwargs["role"] = DirectoryRole(role)
+            except ValueError:
+                kwargs["role"] = None
+        return fn(pattern=pattern, **kwargs)
+    return wrapped
+
+
+def _wrap_get_module_boundary(
+    fn: Callable[..., str], workspace: Path
+) -> Callable[..., str]:
+    """Wrap get_module_boundary with workspace validation."""
+    def wrapped(file_path: str, **kwargs: Any) -> str:
+        resolved = Path(file_path)
+        if not resolved.is_absolute():
+            resolved = workspace / resolved
+        try:
+            resolved.relative_to(workspace)
+        except ValueError:
+            return "[SAFETY DENIED] Path escapes workspace"
+        kwargs["workspace_root"] = workspace
+        return fn(file_path=str(resolved), **kwargs)
+    return wrapped
+
+
+def _wrap_graph_query(workspace: Path) -> Callable[..., str]:
+    """Wrap graph_query with workspace context."""
+    def wrapped(view: str = "dependency", focus: str = "", **kwargs: Any) -> str:
+        config = WorkspaceStructureConfig.load(workspace)
+        graph = CodebaseGraph(workspace, config)
+        result = graph.build(view)
+
+        # Apply focus filter if specified
+        if focus and "nodes" in result:
+            focused = [
+                n for n in result["nodes"]
+                if focus.lower() in n["path"].lower()
+            ]
+            node_paths = {n["path"] for n in focused}
+            result["nodes"] = focused
+            result["edges"] = [
+                e for e in result["edges"]
+                if e["source"] in node_paths or e["target"] in node_paths
+            ]
+        return str(result)
+    return wrapped
+
+
+def _wrap_graph_analytics(
+    fn: Callable[..., str], workspace: Path
+) -> Callable[..., str]:
+    """Wrap graph_analytics with workspace context."""
+    def wrapped(**kwargs: Any) -> str:
+        return fn(workspace_root=workspace)
+    return wrapped
+
+
+def _wrap_failure_report(
+    fn: Callable[..., str], workspace: Path
+) -> Callable[..., str]:
+    """Wrap failure_report with workspace context."""
+    def wrapped(**kwargs: Any) -> str:
+        return fn(workspace_root=workspace)
+    return wrapped
+
+
 # ---- Server factory ----
 
 def create_codebase_server(workspace_path: Path) -> FastMCP:
@@ -152,6 +259,12 @@ def create_codebase_server(workspace_path: Path) -> FastMCP:
         "rg_search": _wrap_rgrep_search(search.SearchTool.rg_search, workspace_path),
         "execute_command": _wrap_execute_command(shell.ShellTool.execute, safety, workspace_path),
         "git_checkpoint": _wrap_git_checkpoint(git_ops.GitOpsTool.checkpoint, workspace_path),
+        "expand_directory": _wrap_expand_directory(expand_directory_fn, workspace_path),
+        "search_by_structure": _wrap_search_by_structure(search_by_structure_fn, workspace_path),
+        "get_module_boundary": _wrap_get_module_boundary(get_module_boundary_fn, workspace_path),
+        "graph_query": _wrap_graph_query(workspace_path),
+        "graph_analytics": _wrap_graph_analytics(graph_analytics_fn, workspace_path),
+        "failure_report": _wrap_failure_report(failure_report_fn, workspace_path),
     }
 
     # MCP tool descriptions (human-readable)
@@ -163,6 +276,12 @@ def create_codebase_server(workspace_path: Path) -> FastMCP:
         "rg_search": "Search file contents using ripgrep. Args: pattern (str), workspace_path (str)",
         "execute_command": "Execute a shell command with safety validation. Args: command (str), workspace_path (str), timeout (int)",
         "git_checkpoint": "Create a git commit checkpoint. Args: message (str), workspace_path (str)",
+        "expand_directory": "Expand a directory with semantic role annotations. Args: path (str, relative to workspace), depth (int, levels to expand), filter_ext (str, optional file extension like '.py')",
+        "search_by_structure": "Search directories/files by structural pattern. Args: pattern (str, glob pattern), role (str, optional DirectoryRole like 'domain-logic' or 'tests')",
+        "get_module_boundary": "Given a file, find its module boundary, dependencies, and dependents. Args: file_path (str)",
+        "graph_query": "Query the codebase dependency graph. Args: view (str: physical|module|dependency|change), focus (str, optional module name filter)",
+        "graph_analytics": "Get usage analytics summary for tools — hotspots, slow tools, success rate. Args: (none)",
+        "failure_report": "Get failure report and improvement suggestions based on recorded tool failures. Args: (none)",
     }
 
     # Register all tools with FastMCP
@@ -173,6 +292,6 @@ def create_codebase_server(workspace_path: Path) -> FastMCP:
     # Register resources
     @server.list_resources()
     async def list_resources():
-        return []  # Dynamic resources handled below
+        return []
 
     return server

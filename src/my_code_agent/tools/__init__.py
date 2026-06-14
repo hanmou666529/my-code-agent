@@ -7,6 +7,13 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
+from ..dep_engine import failure_report as failure_report_fn
+from ..dep_engine import graph_analytics as graph_analytics_fn
+from ..semantic_tree_tools import (
+    expand_directory as expand_directory_tool,
+    get_module_boundary as get_module_boundary_tool,
+    search_by_structure as search_by_structure_tool,
+)
 from .file_ops import FileOpsTool
 from .git_ops import GitOpsTool
 from .search import SearchTool
@@ -43,6 +50,11 @@ tools: Dict[str, Callable[..., str]] = {
     "rg_search": SearchTool.rg_search,
     "execute_command": ShellTool.execute,
     "git_checkpoint": GitOpsTool.checkpoint,
+    "expand_directory": expand_directory_tool,
+    "search_by_structure": search_by_structure_tool,
+    "get_module_boundary": get_module_boundary_tool,
+    "graph_analytics": graph_analytics_fn,
+    "failure_report": failure_report_fn,
 }
 
 

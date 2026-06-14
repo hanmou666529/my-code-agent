@@ -10,6 +10,14 @@ from pathlib import Path
 from typing import Optional
 
 from ..context import ContextEngine
+from ..dep_engine import FailureTracker
+from ..dep_engine import UsageAnalytics as _UsageAnalytics
+from ..graph_projection import CodebaseGraph
+from ..semantic_tree import (
+    SemanticTreeRenderer,
+    SemanticTreeWalker,
+    WorkspaceStructureConfig,
+)
 
 
 class ResourceRegistry:
@@ -23,13 +31,26 @@ class ResourceRegistry:
         """Get a resource by URI.
 
         Supported URI schemes:
-        - `symbol://workspace/{file}?query={name}` — search for symbols
-        - `context://file/{path}?lines={n}` — get file context with line numbers
+        - ``symbol://workspace/{file}?query={name}`` — search for symbols
+        - ``context://file/{path}?lines={n}`` — get file context with line numbers
+        - ``workspace://structure`` — semantic directory tree
+        - ``workspace://structure?mode=summary`` — tree with 2 levels
+        - ``workspace://structure?mode=full`` — full depth tree
         """
         if uri.startswith("symbol://"):
             return self._handle_symbol_resource(uri)
         elif uri.startswith("context://"):
             return self._handle_context_resource(uri)
+        elif uri.startswith("workspace://"):
+            return self._handle_workspace_resource(uri)
+        elif uri.startswith("search://"):
+            return self._handle_search_resource(uri)
+        elif uri.startswith("tree://"):
+            return self._handle_tree_resource(uri)
+        elif uri.startswith("analytics://"):
+            return self._handle_analytics_resource(uri)
+        elif uri.startswith("failures://"):
+            return self._handle_failures_resource(uri)
         else:
             return f"Unknown resource scheme: {uri}"
 
@@ -88,6 +109,163 @@ class ResourceRegistry:
 
         return self._engine.get_file_context(file_path, surrounding_lines=lines)
 
+    def _handle_workspace_resource(self, uri: str) -> str:
+        """Handle ``workspace://`` URIs.
+
+        Parses mode parameter (``summary`` or ``full``) and renders
+        the semantic directory tree.
+        """
+        mode: str = "summary"
+        if "?mode=" in uri:
+            try:
+                mode = uri.split("mode=")[1].split("&")[0]
+            except (IndexError, ValueError):
+                pass
+
+        config = WorkspaceStructureConfig.load(self._workspace)
+        walker = SemanticTreeWalker(self._workspace, config)
+        root = walker.walk()
+        renderer = SemanticTreeRenderer(root, mode=mode)
+        return renderer.render()
+
+    def _handle_search_resource(self, uri: str) -> str:
+        """Handle ``search://`` URIs for structural search.
+
+        Examples:
+        - search://?pattern=**/features/*
+        - search://?pattern=*.py&role=domain-logic
+        """
+        from ..semantic_tree import DirectoryRole
+
+        # Parse pattern and role from URI query string
+        pattern = "*"
+        role_str = ""
+        if "?" in uri:
+            query = uri.split("?", 1)[1]
+            for param in query.split("&"):
+                if "=" in param:
+                    key, val = param.split("=", 1)
+                    if key == "pattern":
+                        pattern = val
+                    elif key == "role":
+                        role_str = val
+
+        role: Optional[DirectoryRole] = None
+        if role_str:
+            try:
+                role = DirectoryRole(role_str)
+            except ValueError:
+                pass
+
+        return search_by_structure_fn(pattern, role, self._workspace)
+
+    def _handle_tree_resource(self, uri: str) -> str:
+        """Handle ``tree://`` URIs for multi-view graph queries.
+
+        Examples:
+        - tree://?view=dependency
+        - tree://?view=dependency&focus=auth
+        - tree://?view=physical
+        - tree://?view=module
+        - tree://?view=change&commits=10
+        """
+        view: str = "dependency"
+        focus: str = ""
+        commits: int = 10
+
+        if "?" in uri:
+            query = uri.split("?", 1)[1]
+            for param in query.split("&"):
+                if "=" in param:
+                    key, val = param.split("=", 1)
+                    if key == "view":
+                        view = val
+                    elif key == "focus":
+                        focus = val
+                    elif key == "commits":
+                        try:
+                            commits = int(val)
+                        except ValueError:
+                            pass
+
+        config = WorkspaceStructureConfig.load(self._workspace)
+        graph = CodebaseGraph(self._workspace, config)
+        result = graph.build(view)
+
+        # Apply focus filter if specified
+        if focus and "nodes" in result:
+            focused = [
+                n for n in result["nodes"]
+                if focus.lower() in n["path"].lower()
+            ]
+            node_paths = {n["path"] for n in focused}
+            result["nodes"] = focused
+            result["edges"] = [
+                e for e in result["edges"]
+                if e["source"] in node_paths or e["target"] in node_paths
+            ]
+
+        return str(result)
+
+    def _handle_analytics_resource(self, uri: str) -> str:
+        """Handle ``analytics://`` URIs for usage analytics.
+
+        Examples:
+        - analytics:// — full summary
+        - analytics://?view=hotspots
+        - analytics://?view=slow
+        """
+        view: str = "summary"
+        if "?" in uri:
+            query = uri.split("?", 1)[1]
+            for param in query.split("&"):
+                if "=" in param and param.split("=")[0] == "view":
+                    view = param.split("=")[1]
+
+        analytics = _UsageAnalytics(self._workspace)
+        if view == "hotspots":
+            return str(analytics.get_hotspots())
+        elif view == "slow":
+            return str(analytics.get_slow_tools())
+        elif view == "underused":
+            return str(analytics.get_underused_tools())
+        return analytics.get_summary()
+
+    def _handle_failures_resource(self, uri: str) -> str:
+        """Handle ``failures://`` URIs for failure reports.
+
+        Examples:
+        - failures:// — full failure report
+        - failures://?detail=suggestions
+        """
+        tracker = FailureTracker(self._workspace)
+        report = tracker.get_failure_report()
+        if "?" in uri and "detail=suggestions" in uri:
+            suggestions = tracker.get_improvement_suggestions()
+            if suggestions:
+                report += "\n\nSuggestions:\n" + "\n".join(f"  - {s}" for s in suggestions)
+        return report
+
     def list_resources(self) -> list[str]:
         """Return the list of available resource URIs."""
-        return []  # Dynamic discovery
+        return [
+            "workspace://structure",
+            "workspace://structure?mode=summary",
+            "workspace://structure?mode=full",
+            "search://",
+            "search://?pattern=**/*",
+            "search://?pattern=*.py&role=tests",
+            "tree://",
+            "tree://?view=physical",
+            "tree://?view=module",
+            "tree://?view=dependency",
+            "tree://?view=change",
+            "analytics://",
+            "analytics://?view=hotspots",
+            "analytics://?view=slow",
+            "analytics://?view=underused",
+            "failures://",
+            "failures://?detail=suggestions",
+            "symbol://workspace/",
+            "context://file/",
+        ]

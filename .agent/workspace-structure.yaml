@@ -1,0 +1,13 @@
+version: "1"
+conventions:
+  feature_dirs: "features/*"
+  test_pattern: "tests/**"
+  source_prefix: "src"
+directory_roles: {}
+ignore_patterns:
+  - ".git"
+  - "__pycache__"
+  - ".venv"
+  - "node_modules"
+  - "dist"
+  - "build"

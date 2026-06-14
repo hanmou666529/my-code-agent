@@ -87,6 +87,12 @@ class AgentConfig(BaseSettings):
     # --- Logging ---
     log_level: str = Field(default="INFO")
 
+    # --- Semantic Directory Tree ---
+    workspace_structure_config: str = Field(
+        default=".agent/workspace-structure.yaml",
+        description="Path to workspace structure YAML config relative to workspace root",
+    )
+
     # --- MCP ---
     mcp_enabled: bool = Field(
         default=False,
@@ -94,7 +100,97 @@ class AgentConfig(BaseSettings):
     )
     mcp_skills_path: str = Field(
         default=".mcp/skills.json",
-        description="Path to the skills definition JSON file",
+        description="Path to the legacy skills definition JSON file",
+    )
+    skills_dir: str = Field(
+        default=".agent/skills",
+        description="Directory for Executable Skill .skill.md files",
+    )
+
+    # --- Auto-Distill Pipeline ---
+    trace_dir: str = Field(
+        default=".agent/traces",
+        description="Directory for session trace storage (JSONL)",
+    )
+    distill_enabled: bool = Field(
+        default=False,
+        description="Enable the auto-distill pipeline (trace collection)",
+    )
+    distill_interval_hours: int = Field(
+        default=6,
+        description="Interval between distillation cycles when running as daemon",
+    )
+    distill_min_cluster_size: int = Field(
+        default=3,
+        description="Minimum traces per cluster to generate a draft",
+    )
+
+    # --- Semantic Cache ---
+    semantic_cache_enabled: bool = Field(
+        default=True,
+        description="Enable semantic cache to reduce repeated LLM calls",
+    )
+    semantic_cache_ttl_seconds: int = Field(
+        default=3600,
+        description="TTL for cached responses in seconds",
+    )
+    semantic_cache_max_entries: int = Field(
+        default=5000,
+        description="Maximum number of entries in the semantic cache",
+    )
+
+    # --- Multi-Modal Perception ---
+    vision_enabled: bool = Field(
+        default=False,
+        description="Enable vision-based screenshot diagnostics",
+    )
+    log_parser_enabled: bool = Field(
+        default=True,
+        description="Enable log parser for CI/CD log analysis",
+    )
+
+    # --- Execution Sandbox v2 ---
+    sandbox_enabled: bool = Field(
+        default=True,
+        description="Enable sandbox v2 for hardened command execution",
+    )
+    sandbox_default_timeout: float = Field(
+        default=30.0,
+        description="Default command execution timeout in seconds",
+    )
+    sandbox_max_output_bytes: int = Field(
+        default=102_400,
+        description="Maximum sandbox command output in bytes",
+    )
+
+    # --- OpenTelemetry Tracing ---
+    tracing_enabled: bool = Field(
+        default=True,
+        description="Enable OpenTelemetry-style tracing",
+    )
+    trace_dir_spans: str = Field(
+        default=".agent/traces",
+        description="Directory for span trace exports (JSON)",
+    )
+
+    # --- State Machine Orchestration ---
+    state_machine_enabled: bool = Field(
+        default=False,
+        description="Use LangGraph-style state machine instead of simple ReAct",
+    )
+    state_machine_max_steps: int = Field(
+        default=25,
+        description="Max steps in the state machine",
+    )
+
+    # --- Multi-Agent Collaboration ---
+    multi_agent_enabled: bool = Field(
+        default=False,
+        description="Enable multi-agent team collaboration mode",
+    )
+    multi_agent_max_rounds: int = Field(
+        default=5,
+        description="Max collaboration rounds for the agent team",
     )
 
     @property
